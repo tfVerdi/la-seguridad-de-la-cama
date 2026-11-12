@@ -1,0 +1,104 @@
+{% load static %}
+<link rel="stylesheet" href="{% static 'css/style.css' %}">
+<div class="personajes-container" style="max-width: none;">
+    <div class="personajes-grid" style="display: block;">
+        <div class="seleccionado-section" style="margin-bottom: 30px; text-align: center;">
+            <h2 style="color: #f19c3a; margin-bottom: 10px;">Tablero</h2>
+
+            {% if personaje_seleccionado %}
+            <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 16px;">
+                <img class="personaje-img" src="{{ personaje_seleccionado.imagen_url }}" alt="{{ personaje_seleccionado.nombre }}">
+                <h3 class="personaje-nombre">{{ personaje_seleccionado.nombre }}</h3>
+            </div>
+            {% endif %}
+
+            
+            <div class="personaje-card seleccionado-card" style="width: 75vw; margin: 0 auto; border: 2px solid #f19c3a; padding: 0; overflow: hidden;">
+                <img id="frame" alt="Tablero del juego" style="display: block; width: 100%; height: auto;">
+            </div>
+            <br>
+            <!-- BOTÓN PARA REINICIAR EL LABERINTO -->
+            <div style="margin-bottom: 15px;">
+                <button id="btn-reiniciar" style="background-color: #f19c3a; color: rgb(253, 245, 245); border: none; padding: 10px 20px; font-size: 14px; border-radius: 6px; cursor: pointer; font-weight: bold;">
+                    Reiniciar Laberinto
+                </button>
+            </div>
+            <br>
+            <div class="explicacion">
+                Lore: El juego trata de un personaje miedoso que tienes que intentar guiar a la seguridad de su cama a través de un laberinto.
+
+                Moverte a través de la oscuridad del laberinto drena tu valentía, pero es la única forma de explorar el camino hacia tu meta.
+
+                Encontrarás zonas de descanso donde puedes recuperarte y obtendrás un mayor rango de visión momentaneamente,
+                por lo que puedes usarlas de forma estrátegica para observar tus alrededores. 
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const img = document.getElementById("frame");
+const btnReiniciar = document.getElementById("btn-reiniciar");
+const URL_FRAME = "{% url 'generar_imagen' %}";
+const TECLAS = ["w", "a", "s", "d"];
+const INTERVALO_REFRESCO_MS = 500;  // para ver subir la energía mientras estás parado
+
+let ocupado = false;   // hay una petición en curso
+let pendiente = null;  // última acción pedida mientras había otra en curso
+
+// Las peticiones se hacen de una en una: así la sesión de Django no se pisa
+// y la tecla se envía UNA sola vez (el refresco periódico va sin tecla).
+async function pedirFrame({ tecla = "", nuevoJuego = false } = {}) {
+    if (ocupado) {
+        // Guardamos solo la última acción; un reinicio pendiente no se sobrescribe
+        if ((tecla || nuevoJuego) && !(pendiente && pendiente.nuevoJuego)) {
+            pendiente = { tecla, nuevoJuego };
+        }
+        return;
+    }
+
+    ocupado = true;
+    try {
+        const params = new URLSearchParams();
+        if (tecla) params.set("tecla", tecla);
+        if (nuevoJuego) params.set("nuevo_juego", "1");
+
+        const res = await fetch(URL_FRAME + "?" + params.toString());
+        if (!res.ok) throw new Error("HTTP " + res.status);
+
+        const blob = await res.blob();
+        const anterior = img.src;
+        img.src = URL.createObjectURL(blob);
+        if (anterior.startsWith("blob:")) URL.revokeObjectURL(anterior);
+    } catch (err) {
+        console.error("Error al cargar el frame:", err);
+    } finally {
+        ocupado = false;
+        if (pendiente) {
+            const siguiente = pendiente;
+            pendiente = null;
+            pedirFrame(siguiente);
+        }
+    }
+}
+
+// Carga inicial al entrar a la página
+pedirFrame();
+
+// Refresco periódico sin tecla (recarga de energía en descanso)
+setInterval(() => {
+    if (!document.hidden) pedirFrame();
+}, INTERVALO_REFRESCO_MS);
+
+// Botón de reinicio
+btnReiniciar.addEventListener("click", () => {
+    pedirFrame({ nuevoJuego: true });
+});
+
+// Teclado
+document.addEventListener("keydown", (e) => {
+    const tecla = e.key.toLowerCase();
+    if (!TECLAS.includes(tecla)) return;
+    pedirFrame({ tecla });
+});
+</script>
